@@ -4,8 +4,10 @@
 - PRD 파일은 `plan/` 디렉토리에 저장한다.
 - 새로 PRD를 작성하거나 수정할 때마다 버전을 올려서 새 파일로 저장한다.
   - 형식: `plan/plan_v{N}` (예: plan_v1, plan_v2, plan_v3 ...)
-- 현재 최신 버전: **v4** (`plan/plan_v4`)
-- 이전 버전은 삭제하지 않고 히스토리로 보존한다.
+- 현재 최신 버전: **v6** (`plan/main/plan_v6.md`)
+- 문제 정의: `plan/main/problem_definition.md`
+- v6부터는 `plan/main/` 디렉토리에서 관리
+- 이전 버전(v1~v5)은 `plan/` 루트에 히스토리로 보존한다.
 
 ---
 
@@ -200,24 +202,32 @@
 
 ## 파일 구조
 ```
-C:\Energy_effi\
+D:\pv_backup\
 ├── CLAUDE.md              ← 이 파일 (프로젝트 컨텍스트)
 ├── .env                   ← 공공데이터포털 API 키
 ├── references.md          ← 참고자료/출처 목록
-├── pv_predict.md          ← PV 예측 모델 논문 (LaTeX, 베이지안+GRU)
 ├── plan/
-│   ├── plan_v1            ← PRD v1 (초기)
-│   ├── plan_v2            ← PRD v2 (CBP 시장 구조 반영)
-│   ├── plan_v3            ← PRD v3 (변동성 대비 중심)
-│   └── plan_v4            ← PRD v4 (최신, 3단계 운영 + 기상전략)
+│   ├── plan_v1~v4         ← 총괄 PRD 이전 버전들
+│   ├── plan_v5            ← 총괄 PRD (최신)
+│   ├── pv/
+│   │   └── v1             ← PV 예측 세부 계획 (논문 모델 기준)
+│   ├── fuel/              ← 화력 백업 최적화 세부 계획 (예정)
+│   └── esg/               ← 대기질 영향 세부 계획 (예정)
+├── pv/                    ← ★ PV 예측 연구 전용 디렉토리
+│   ├── README.md          ← PV 연구 개요
+│   ├── plan_v1.md         ← PV 예측 계획 v1 (논문 모델 기준)
+│   ├── pv_predict.md      ← 모델 논문 (베이지안+FiLM-GRU 수식)
+│   ├── notebooks/         ← EDA, 실험 노트북
+│   ├── src/
+│   │   ├── data/          ← 데이터 로딩, 전처리, 피처 엔지니어링
+│   │   ├── models/        ← 모델 정의
+│   │   ├── training/      ← 학습/검증/평가 파이프라인
+│   │   └── utils/         ← 공통 유틸리티
+│   └── experiments/       ← 실험 결과, 모델 체크포인트
 ├── data/
 │   └── raw/               ← 크롤링 데이터 저장 (미수집)
 ├── data_fetch.py          ← 공공데이터 API 호출 (API 활용신청 필요)
 ├── crawl_koen.py          ← 남동발전 홈페이지 Playwright 크롤링 (미실행)
-├── create_ppt.py          ← PPT v1 (어두운 남색 테마)
-├── create_ppt_v2.py       ← PPT v2 (흰배경 + 초록 테마)
-├── PRD_v4_presentation.pptx     ← PPT v1 결과물
-├── PRD_v4_presentation_v2.pptx  ← PPT v2 결과물 (최신)
 ├── 한국남동발전㈜_발전소 운영 현황_20250728.csv
 ├── 한국남동발전㈜_전력거래 입찰 정보 현황_20241231.csv
 ├── 한국남동발전㈜_SMP 수요예측 정보_20241201.csv
