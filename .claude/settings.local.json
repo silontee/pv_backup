@@ -1,7 +1,22 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)"
+      "Bash(git clone:*)",
+      "Bash(git pull:*)",
+      "Bash(cp:*)",
+      "Bash(pip install:*)",
+      "Bash(playwright install:*)",
+      "Bash(python -c \"from playwright.sync_api import sync_playwright; print\\('ok'\\)\")",
+      "Bash(python test_download.py)",
+      "Bash(python crawl_all.py)",
+      "Bash(taskkill /f /im chromium.exe)",
+      "Bash(taskkill /f /im chrome.exe)",
+      "Bash(python check_thermal.py)",
+      "Bash(du *)",
+      "WebSearch",
+      "WebFetch(domain:www.ksga.org)",
+      "Bash(python3 *)",
+      "WebFetch(domain:www.seoulfn.com)"
     ]
   }
 }
