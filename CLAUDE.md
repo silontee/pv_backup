@@ -4,7 +4,7 @@
 - PRD 파일은 `plan/` 디렉토리에 저장한다.
 - 새로 PRD를 작성하거나 수정할 때마다 버전을 올려서 새 파일로 저장한다.
   - 형식: `plan/plan_v{N}` (예: plan_v1, plan_v2, plan_v3 ...)
-- 현재 최신 버전: **v6** (`plan/main/plan_v6.md`)
+- 현재 최신 버전: **v7** (`plan/main/plan_v7.md`)
 - 문제 정의: `plan/main/problem_definition.md`
 - v6부터는 `plan/main/` 디렉토리에서 관리
 - 이전 버전(v1~v5)은 `plan/` 루트에 히스토리로 보존한다.

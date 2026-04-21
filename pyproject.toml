@@ -4,15 +4,19 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.14"
 dependencies = [
+    "aiohttp>=3.13.5",
     "ipykernel>=7.2.0",
     "jupyter>=1.1.1",
     "matplotlib>=3.10.8",
+    "netcdf4>=1.7.4",
     "numpy>=2.4.4",
     "pandas>=3.0.2",
     "playwright>=1.58.0",
     "plotly>=6.7.0",
     "pvlib>=0.15.0",
+    "pyproj>=3.7.2",
     "scikit-learn>=1.8.0",
     "seaborn>=0.13.2",
+    "xarray>=2026.4.0",
     "xgboost>=3.2.0",
 ]

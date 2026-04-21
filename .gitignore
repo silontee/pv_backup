@@ -3,3 +3,6 @@
 __pycache__/
 *.pyc
 *.csv
+*.nc
+*.log
+data/gk2a_ghi/
