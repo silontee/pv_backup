@@ -16,7 +16,10 @@
       "WebSearch",
       "WebFetch(domain:www.ksga.org)",
       "Bash(python3 *)",
-      "WebFetch(domain:www.seoulfn.com)"
+      "WebFetch(domain:www.seoulfn.com)",
+      "NotebookEdit",
+      "Edit(**/*.ipynb)",
+      "Write(**/*.ipynb)"
     ]
   }
 }
