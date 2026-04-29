@@ -1,5 +1,11 @@
 # Plan v8: Data-Model 정합형 실행계획
 
+> 🔄 **PIVOT IN PROGRESS (2026-04-28)** — Stage 0 (MOS) 추가 검토 중
+> - 새 방향(2-Stage MOS+PV): `plan/pv/plan_v1.md`
+> - 결정 근거: `plan/decisions/2026-04-28-pv-mos-stage.md`
+> - 본 문서는 `pv/plan_v1.md`의 EDA Go/No-Go 게이트 통과 후 v9로 갱신 예정.
+> - 본문 §3~§9는 Stage 1(PV 예측)으로 그대로 흡수되므로 유효.
+
 > 기준일: 2026-04-22
 > 데이터 단일 기준 문서(SSoT): `plan/main/data_strategy.md`
 > 모델 설계 단일 기준 문서: `pv/pv_predict.md`

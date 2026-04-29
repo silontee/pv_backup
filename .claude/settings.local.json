@@ -19,7 +19,8 @@
       "WebFetch(domain:www.seoulfn.com)",
       "NotebookEdit",
       "Edit(**/*.ipynb)",
-      "Write(**/*.ipynb)"
+      "Write(**/*.ipynb)",
+      "Bash(xargs -I{} basename {}eq)"
     ]
   }
 }

@@ -3,3 +3,10 @@
 __pycache__/
 *.pyc
 *.nc
+
+# GK-2A 중간 산출물 (raw NC에서 재생성 가능, 166MB)
+data/gk2a_v1/
+data/gk2a_raw/
+
+# 테스트/실험 NC
+data/test_*.nc

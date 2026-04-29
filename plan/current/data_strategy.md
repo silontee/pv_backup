@@ -1,5 +1,10 @@
 # 데이터 전략 (Data Strategy)
 
+> ⏳ **갱신 예정 (2026-04-28)** — Open-Meteo `historical-forecast-api` (MOS 학습용) 추가 검토 중
+> - 결정 근거: `plan/decisions/2026-04-28-pv-mos-stage.md`
+> - 본 문서 §1·§4·§7은 `plan/pv/plan_v1.md` EDA Go/No-Go 게이트 통과 후 일괄 갱신.
+> - 현 본문은 학습 측면(GK-2A + ASOS)에서는 여전히 유효.
+
 > **이 문서는 이 프로젝트 데이터 개요의 단일 소스(SSoT)이다.**
 > 데이터 소스/기간/호기 구성/좌표 매핑/제외 정책이 바뀌면 **무조건 이 문서를 먼저 갱신**한다.
 > 다른 plan 문서(`plan_v*.md`, `pv/`, `fuel/`, `esg/`)는 데이터 개요를 중복 기술하지 않고 이 문서를 참조한다.
@@ -183,83 +188,81 @@ PV 예측 모델은 `gen_kwh`가 **태양광에서 나온 순수 발전량**이�
 - GK-2A: 2km 해상도, PV 사이트 바로 위 실측, ASOS 대비 R=0.984, RMSE 48.6 W/m² → 학습용 최적
 - Open-Meteo: ECMWF/GFS 기반 예보, 좌표 입력 시 GHI 직접 반환 → 예보용 최적
 
-#### GK-2A 수집 방법 (2026-04-22 확정)
+#### GK-2A 수집 방법 (2026-04-24 최종 확정)
 
-**소스/엔드포인트**:
-- KMA API허브 `GK2A/LE2/SWRAD/KO/data` (DSR = GHI, W/m²)
-- NC 파일에서 `DSR` + `DSR_DQF1` 추출
-- LCC 투영(기준위도 30N/60N, 원점 38N/126E) 900×900 2km 격자 → 11개 고유 좌표에서 픽셀 추출
+**소스/엔드포인트** — NCDC SFTP (기상청 국가기후데이터센터 직접):
+- 호스트: `sftp://203.247.94.245:40021` (NCDC 사용자 제공)
+- 경로: `/SAT/YYYYMM/DD/gk2a_ami_le2_swrad_ko020lc_YYYYMMDDHHMM.nc`
+- 파일명 시간 = **UTC 기준** (file_creation_time `Z` 접미사, 9개 시각 물리 검증 완료)
+- NC 구조: `DSR, ASR, RSR` + 각 `DQF1` + `SW_DQF` (총 7변수)
+- **해상도: 10분 단위** (시간당 6장)
+- LCC 투영 900×900 2km 격자 → 11개 고유 좌표 픽셀 추출
 
-**DQF 기준 (2026-04-22 재정의)**:
+**이전 KMA API허브 방식 폐기 사유** (2026-04-24):
+- API허브: 키당 4.5GB/일 + 2만 호출 제한 → 전체 수집에 **며칠** 소요
+- API허브: 시간당 1장 (10분 단위는 throttle 심함)
+- API허브: IP 블록 리스크 (실제로 2026-04-22, 23 두 번 발생)
+- NCDC SFTP: **쿼터 없음, 10분 풀데이터, FTP 병렬 다운 → 수 시간** 완료
 
-공식 ATBD(`NMSC-SCI-ATBD-INS_v1.0.pdf` Table 4) 기준 DSR_DQF1 값 정의:
+**DQF 기준 (실증 확정)**:
 
-| DQF | 등급 | 의미 |
-|-----|------|------|
-| 1 | excellent | Clear, Cloud 신뢰도 100% |
-| 2 | excellent | Cloudy, Cloud 신뢰도 100% |
-| 3 | acceptable | Clear, Cloud 신뢰도 75% |
-| 4 | acceptable | Cloudy, Cloud 신뢰도 75% |
-| 5 | bad | Clear, Cloud 신뢰도 50% |
-| 6 | uncertainty | Cloudy(?), Cloud 신뢰도 <50% |
-| 7, 8 | bad | INS_MIN/INS_MAX 기후 범위 벗어남 |
-| 9 | - | Fog detected |
-| 10 | - | Snow detected |
-| 11 | - | OMI Ozone 결측 (이전 데이터 사용) |
-| 12 | - | Sun-glint condition |
-| 13 | - | Night (SZA>80°) → INS=0 강제 |
-| 14 | - | Out-of-view (VZA>80°) → INS=0 강제 |
-| 15 | - | 처리 범위 밖 |
+ATBD Table 4는 1~15 다단계 정의이나, 실제 GK-2A 프로덕션은 **`DQF=1` 또는 `NaN` 2단계만** 사용.
+- 2023-07-15 13:00 NC 전 픽셀(810,000개) 전수 조사 → 100% DQF=1
+- 2022-2025 48개월 추출 결과에서도 DQF=2~12 미관측
+- **DQF 플래그 의미 반대 주의**: `0=Bad, 1=Good` (이전 추측과 반대)
 
-**초기(1차) 수집 (`crawl_gk2a.py`)**: `DQF=1`만 허용 → 흐린 날·특수 날씨 전부 NaN 처리됨.
-- 결과: 낮 시간 기준 ~6.6% (12,279건)가 "GHI NaN인데 gen_kwh 유의미" 상태 (특히 고흥만 12~15시 흐린 날).
-- PV 예측에 흐린 날이 핵심인데 학습 데이터에서 빠져 있던 구조적 문제 발견.
-
-**재수집 기준 (`crawl_gk2a_retry.py`, 관대)**:
-- **ACCEPTABLE** `{1, 2, 3, 4, 9, 10, 11, 12}`: 값 그대로 사용 (excellent + acceptable + 특수 날씨·부정확)
-- **ZERO** `{13, 14}`: 0.0 강제 (물리적 0 — 야간/시야 밖)
-- **제외** `{5, 6, 7, 8, 15}` + Unknown: `None` 유지 (신뢰도 50% 이하, 기후 이상치, 처리 불가)
-
-**DQF 컬럼 원칙**: 학습 데이터 **품질 필터링**용. 모델 feature로 직접 사용하지 **않음** (Open-Meteo 예보에는 DQF 없어서 학습-예보 일관성 위배). 필요 시 "DQF ≤ N인 시간만 학습" 같은 전처리 단계에서만 활용.
+**DQF 컬럼 원칙**: 학습 데이터 품질 **메타데이터**로 보존(`dqf` 컬럼). 모델 feature 직접 사용 X (Open-Meteo 예보에 DQF 없어 학습-예보 일관성 위배).
 
 **수집 범위**:
-- **시간**: 07~18 KST (12시간). 06/19/20시는 KMA 가 NaN 주는 시간대라 수집 범위에서 제외
-- **해상도**: 정각만 1장/시간 (`KST_MINUTES = [0]`). 10분 단위는 throttle 심해서 정각으로 축소
+- **시간 해상도**: **10분 단위** (UTC 기준 파일, KST 변환해서 저장)
+- **모든 시간** 수집 (밤시간 NaN도 포함 — KMA archive gap 증거로 유용)
 - **기간**: 2022-01 ~ 2025-12 (48개월)
 
-**키/속도**:
-- 18개 API 키 로테이션, 키당 4.5GB pre-check (5GB 하드 리밋 전에 차단)
-- 병렬 워커 8개, 워커당 sleep 2.0s
-- 2025-11 부터 포맷 바뀌어 파일 8MB → `MAX_FILE_SIZE = 10MB` 여유
+**변수 활용 전략** (data_strategy §EDA 참조):
+| 변수 | 의미 | PV 활용 |
+|---|---|---|
+| DSR | Downward SW = GHI | ⭐⭐⭐ 주 입력 |
+| ASR | Absorbed SW (지표 흡수) | ⭐⭐ 모듈 온도 proxy |
+| RSR | Reflected SW (지표 반사) | ⭐⭐ 알베도, 고흥만 수상 특성 |
+| DQF 3종 + SW_DQF | 품질 플래그 | ⭐ 필터링 메타 |
 
-**NaN vs FAIL 구분 (중요) — 2026-04-22 업데이트**:
+- 파생 피처 후보: `albedo = rsr/dsr`, `absorption_ratio = asr/dsr`, `albedo_anomaly`
+- 단, DSR-ASR-RSR 간 강한 상관 예상 → Stage 2 EDA에서 실증 확인 후 채택
 
-| 상황 | CSV 표기 | 원인 | 재수집 대상? |
-|------|---------|------|------------|
-| 다운로드 성공 + 픽셀 값 유효 (DQF=1) | `123.4` (숫자) | 맑음 100% 신뢰 | ❌ 보존 |
-| 다운로드 성공 + DQF=2~4,9~12 | `""` (빈 문자열) | 초기 수집이 DQF=1만 허용 → 버림 | ✅ **재수집 (관대 DQF)** |
-| 다운로드 성공 + DQF=13/14 | `""` | 야간/시야 밖 — 물리적 0 | ✅ 0.0으로 복구 |
-| 다운로드 성공 + DQF=5~8,15 | `""` | 신뢰도 50% 이하/기후 이상치 | ❌ 복구 불가 |
-| 다운로드 실패 (throttle/서버 에러) | `""` | API FAIL | ✅ 재수집 |
+**저장 구조 (2026-04-24 현행)**:
 
-- **이전 기조** (`retry_fail.py`, 폐기): FAIL 로그 기반 `""`만 재시도 → DQF≠1 케이스 놓침
-- **신 기조** (`crawl_gk2a_retry.py`): **CSV 기준 NaN 있는 시각 모두** 재요청 (FAIL + DQF≠1 통합)
-- 일부 사이트만 NaN인 시각도 재요청 대상 (NC 한 번 받으면 11개 사이트 전부 재추출)
+| 경로 | 포맷 | 설명 |
+|---|---|---|
+| `data/gk2a_raw/YYYYMM/DD/*.nc` | NC | NCDC 원본 (약 207,958개, 331GB) |
+| `data/gk2a_v3/YYYYMM.csv` | long | **최종 추출 결과** (48개월, 총 166MB) |
 
-**저장 구조**:
-- **원본 (1차, DQF=1)**: `data/gk2a_ghi/gk2a_ghi_YYYYMM.csv` (wide)
-  - 컬럼: `datetime_kst, 고흥만수상, 삼천포, 영흥, 광양항세방, 예천, 영동, 탑선, 구미, 경상대, 여수, 창원` (11개 고유 좌표)
-  - 50시간 단위 증분 저장
-- **재수집 (2차, 관대 DQF) — 2026-04-22 신설**: `data/gk2a_ghi_retry/gk2a_ghi_YYYYMM_retry.csv` (long)
-  - 컬럼: `datetime_kst, site, ghi, dqf`
-  - DQF 값 보존 — 나중 "DQF별 예측 정확도" 분석 가능
-  - 누적 통계: `data/gk2a_ghi_retry/_dqf_stats.csv` (`ym, dqf, count`)
-  - 원본 wide CSV와 **merge는 수집 완료 후 별도 작업** (`merge_gk2a_ghi.py` 예정)
+**출력 스키마** (`data/gk2a_v3/YYYYMM.csv`):
+```
+datetime_utc, datetime_kst, site,
+dsr, dsr_dqf, asr, asr_dqf, rsr, rsr_dqf, sw_dqf,
+status
+```
+- `status` ∈ {`ok`, `nan_value`, `dsr_dqf_reject`, `sw_dqf_reject`, `read_error_*`, `out_of_grid`}
+- 학습 단계에서 `df[df.status == 'ok']` 필터링
+
+**수집·추출 스크립트** (`src/crawl/gk2a_v3/`):
+- `download_nc.py`: NCDC SFTP 병렬 다운로드 (paramiko, parallel=6~8)
+- `extract_nc.py`: NC → CSV 추출 (netCDF4 직접 슬라이스, 순차 처리 약 3~5분/월)
+- `run_download.ps1`: 월 단위 배치 스크립트
+
+**성능 메모**:
+- `xarray.open_dataset`로 전체 900×900 로드 시 파일당 600~800ms → netCDF4 직접 슬라이스로 **50~70ms (10배 빠름)**
+- Windows HDF5/ThreadPoolExecutor 세그폴트, multiprocessing DLL 차단 → **순차 처리로 우회**
+- 다운로드 완료 즉시 자동 추출 trigger (subprocess)
 
 **수집 이력 (주요 트러블)**:
-- 초기 IP throttle 로 인해 sleep 2s → 5s 조정, WARP VPN 시도 (효과 없음 — 서버측 정책)
-- 2026-04-21: 06·19·20시 row 4,383건 삭제 (전부 NaN, 일출·일몰 후 물리적 제로 구간)
-- 2026-04-21: KMA 문의 결과 "키당 5GB/일 외 공식 rate limit 없음" 확인 → 병렬 워커 8로 상향
+- 2026-04-20 ~ 22: KMA API허브 기반 수집 시도. 47.55GB 사용, 94% 성공.
+- 2026-04-22: retry 실행 중 IP 블록. 원인 = state 미공유 + 동시 세션 과다.
+- 2026-04-23 오전: blacklist 로직 추가 (과잉설계). 이후 폐기.
+- 2026-04-23 오후: DQF 실증 조사로 lenient 로직 폐기, strict DQF=1 복귀.
+- 2026-04-23 저녁: **NCDC 국가기후데이터센터 손시현 선생님 응대** — `/SAT` 경로 2TB 전체 SFTP 직접 제공 (데드라인 2026-05-21).
+- 2026-04-23 ~ 24: **v3 전환** — NCDC SFTP 10분 단위 수집으로 이관, 48개월 완료.
+- 2026-04-24: 구 v1/v2 스크립트 및 중간 산출물 정리 (`data/gk2a_ghi/`, `data/gk2a_ghi_retry/`, `data/gk2a_merged/`, `data/gk2a_v2/` 삭제, `src/crawl/gk2a/`, `src/crawl/gk2a_v2/` 삭제).
 
 ### 기온/습도/풍속: ASOS (학습) + 단기예보 (예보)
 
@@ -320,12 +323,14 @@ PV 예측 모델은 `gen_kwh`가 **태양광에서 나온 순수 발전량**이�
 | LNG 시간별 | `data/thermal_hourly/` | `thermal_hourly_YYYYMM.csv` (48개) |
 | ASOS 시간별 | `data/asos_hourly/` | `asos_hourly_YYYYMM.csv` (48개) |
 
-### 거의 완료 (관대 DQF 재수집 대기)
+### GK-2A GHI 수집 현황 (2026-04-24 현행)
 
 | 데이터 | 파일 위치 | 현재 상태 |
 |--------|----------|----------|
-| GK-2A GHI (원본, DQF=1) | `data/gk2a_ghi/` | **48개월 (2022-01 ~ 2025-12) 파일 생성 완료**. 총 ~47.55GB 수신, ~94.6% 시간 성공. DQF=1만 수집했기에 흐린 날(DQF=2) + 특수 날씨 모두 NaN 처리된 상태. |
-| GK-2A GHI (재수집, 관대 DQF) | `data/gk2a_ghi_retry/` | 🟡 **2026-04-22 스크립트 `crawl_gk2a_retry.py` 작성 완료, API 풀리는 대로 실행 예정**. NaN 있는 모든 시각 재요청 → DQF {1~4, 9~14} 관대 기준으로 값 복구. 예상 5.5GB, 병렬 8워커로 ~45분. |
+| GK-2A NC 원본 | `data/gk2a_raw/YYYYMM/DD/*.nc` | **48개월 완료** (2022-01 ~ 2025-12), 207,958개 NC, 약 331GB. NCDC SFTP 직접 수신. |
+| GK-2A 추출 (long format) | `data/gk2a_v3/YYYYMM.csv` | **48개월 완료** 총 166MB. `datetime_utc/kst, site, dsr/asr/rsr + DQF, status` 스키마. |
+
+**이전 중간 산출물**: `data/gk2a_ghi/`, `data/gk2a_ghi_retry/`, `data/gk2a_merged/`, `data/gk2a_v2/` — 2026-04-24 삭제 (v3 대체 완료).
 
 ### 전처리 산출물
 
@@ -359,10 +364,16 @@ PV 예측 모델은 `gen_kwh`가 **태양광에서 나온 순수 발전량**이�
 | 데이터 | 기간 | 비고 |
 |--------|------|------|
 | 태양광/LNG/ASOS | 2022-01 ~ 2025-12 (48개월) | 전 기간 가용 |
-| **GK-2A GHI** | **2022-01 ~ 2025-12 (48개월), 정각 1장, 07~18 KST** | ~94.6% 시간 성공, 잔여 FAIL 재시도 대상 |
+| **GK-2A GHI** | **2022-01 ~ 2025-12 (48개월), 정각 1장, 07~19 KST** | 1차 원본 79.5% + 2차 retry + Phase 3 v2 보간 중. 2026-04-23 현재 수집 진행 |
 
-- **학습 대상**: 2022-01 ~ 2025-12 (48개월) 전 기간 사용 가능 (GHI 48개월 확보)
+- **학습 대상**: 2022-01 ~ 2025-12 (48개월) 전 기간 사용 가능
 - 학습/검증/테스트 분할: EDA 완료 후 결정
+- **결측 처리 정책**:
+  - `source in {exact, interp_*}` → 학습 포함
+  - `source = zero_seasonal` → 학습 포함 (0 값, PV-operationally negligible)
+  - `source = unrec_archive_gap` → 학습 제외 or NaN 표시
+  - `source = unrec_transport/mixed` → 다음 run에서 자동 재시도
+  - 평가 시 source별 metric 분리 보고 (exact-only, interp-included, 전체)
 
 ---
 
@@ -392,11 +403,11 @@ data/
 │   └── thermal_hourly_YYYYMM.csv
 ├── asos_hourly/            ✅ ASOS 기상 (48개월)
 │   └── asos_hourly_YYYYMM.csv
-├── gk2a_ghi/               🟢 GK-2A GHI 원본 (48개월, DQF=1 only, wide)
-│   └── gk2a_ghi_YYYYMM.csv
-├── gk2a_ghi_retry/         🟡 GK-2A GHI 재수집 (관대 DQF, long, 2026-04-22 신설)
-│   ├── gk2a_ghi_YYYYMM_retry.csv    # datetime_kst, site, ghi, dqf
-│   └── _dqf_stats.csv                # 누적 DQF 분포
+├── gk2a_raw/               ✅ NCDC NC 원본 (48개월, 10분 단위)
+│   └── YYYYMM/DD/gk2a_ami_le2_swrad_ko020lc_YYYYMMDDHHMM.nc
+├── gk2a_v3/                ✅ 추출 결과 (long format, 48개월)
+│   ├── YYYYMM.csv                     # datetime_utc, datetime_kst, site, dsr/asr/rsr+DQF, status
+│   └── _extract_YYYYMM.log            # 추출 로그
 ├── processed/              전처리 산출물
 │   ├── solar_hourly_long.csv
 │   └── solar_daily_stats.csv
@@ -405,18 +416,19 @@ data/
 ├── fuel_consumption/
 └── fuel_procurement/
 
-src/                        스크립트 모음 (2026-04-22 신설)
-├── crawl/                  크롤링 스크립트
+src/                        스크립트 모음 (2026-04-24 정리)
+├── crawl/
 │   ├── koen/               남동발전 관련
 │   │   ├── crawl_koen.py
 │   │   └── preprocess_solar.py
-│   └── gk2a/               GK-2A 관련
-│       ├── crawl_gk2a.py
-│       └── crawl_gk2a_retry.py
-└── diagnose/               일회성 진단 스크립트 (참고용)
-    ├── check_ghi_completeness.py
-    ├── check_15h.py
-    └── diagnose_units.py
+│   ├── kma/                기상청 ASOS 등
+│   │   ├── crawl_asos.py
+│   │   └── crawl_weather.py
+│   └── gk2a_v3/            ✅ NCDC SFTP 기반 (현행)
+│       ├── download_nc.py              # paramiko SFTP 병렬 다운로드
+│       ├── extract_nc.py               # NC → CSV 추출 (netCDF4 직접 슬라이스)
+│       └── run_download.ps1            # PowerShell 배치 스크립트
+└── diagnose/               일회성 진단 스크립트
 ```
 
 ---
@@ -432,3 +444,17 @@ src/                        스크립트 모음 (2026-04-22 신설)
 | 2026-04-22 | **§4 GK-2A 수집 방법 섹션 신설**: (a) 시간 범위 06~20 → **07~18 KST** 축소 (06/19/20시는 KMA NaN 구간). (b) `KST_MINUTES = [0]` 정각만 1장/시간. (c) **NaN vs FAIL 구분** — 다운 성공+KMA no-data = `"NaN"` 문자열, 다운 실패 = `""` 빈 문자열. `retry_fail.py` 는 `""` 만 재시도 대상. (d) 기존 CSV에서 06/19/20시 row 4,383건 삭제. (e) 48개월 ~47.55GB, ~94.6% 시간 성공 달성. |
 | 2026-04-22 | **DQF 기준 관대화 + 재수집 스크립트 작성**: (a) 공식 ATBD(`NMSC-SCI-ATBD-INS_v1.0`) Table 4 확인 — DSR_DQF1 값 1~15 의미 정리. (b) 초기 수집이 `DQF=1`만 허용 → 흐린 날(DQF=2) 포함 낮 시간 12,279건(6.62%) 유효 데이터를 NaN으로 버린 구조적 문제 발견 (특히 고흥만 12~15시 흐린 날). (c) **관대 기준 확정**: ACCEPTABLE {1,2,3,4,9,10,11,12}, ZERO {13,14} → 0.0, 제외 {5,6,7,8,15}. (d) **`crawl_gk2a_retry.py` 신설** — 기존 CSV NaN 시각(FAIL + DQF≠1 통합) 모두 재요청, 결과는 `data/gk2a_ghi_retry/` long-format + DQF 컬럼 보존. 원본 `data/gk2a_ghi/`은 건드리지 않음. Merge는 수집 완료 후 별도 작업. (e) 기존 `retry_fail.py` (FAIL only) 폐기 예정. (f) DQF 원칙: 학습 품질 필터용, 모델 feature 직접 사용 X (Open-Meteo 예보에 DQF 없어서 일관성 위배). |
 | 2026-04-22 | **디렉토리 정리**: (a) `data/` 밖 CSV를 `data/info/` 로 이동 (공공데이터포털 다운로드 파일). (b) 루트의 스크립트를 `src/` 하위로 분류 — `src/crawl/koen/` (남동발전), `src/crawl/gk2a/` (GK-2A), `src/diagnose/` (일회성 진단). (c) 일회성 진단 스크립트(`check_ghi_completeness.py`, `check_15h.py`, `diagnose_units.py`, `test_openmeteo.py`)는 참고용으로 `src/diagnose/` 보관. |
+| 2026-04-23 | **DQF 실증 조사 — lenient 로직 폐기**: 2023-07-15 13:00 NC 한 장 전 픽셀(810,000개) 직접 검사 → **100% DQF=1, 다른 값 0건**. 2022-2023 retry 14,575행 누적 조사에서도 DQF=2~12 단 1건 없음. ATBD Table 4의 다단계 분류는 이론적 사양이며 KMA 실제 프로덕션은 `{DQF=1, NaN}` 2단계만 사용. → **lenient DQF 로직(1~12 accept) 폐기**, strict DQF=1으로 복귀. lenient 재수집(2026-04-22) 결과는 legacy로 보존(일부 네트워크 FAIL 회수분은 유효). |
+| 2026-04-23 | **가을 9~11월 15:00 KMA archive gap 발견/해결**: 매년 반복 패턴 확인 (3년 모두 15:00 정각만 100% 결측, 14:00·16:00은 정상). API 직접 호출 검증: `2022-09-15 15:00` ❌ 404, **`15:10` ✅ 200**. 원인은 KMA L2 INS 프로세싱의 특정 계절 특정 시각 skip (위성 calibration 추정). → **±10분 보간으로 해결**. |
+| 2026-04-23 | **NaN 원인의 진짜 분포 확인**: 이전 가설 "흐린날 GHI 결측" 실증 반박. 2022-01 영흥 × 인천 ASOS 교차 분석 결과 — 흐린날(운량 6-8) GK-2A 유효율 **74.3%** (맑은날 71.2%와 유사/오히려 높음). 상관계수 -0.033으로 날씨와 결측 무관. 진짜 원인: 네트워크 FAIL, KMA 404 archive gap, SZA>80° 경계. GK-2A GHI ↔ ASOS icsr 상관 **0.889** (매우 강한 일치). |
+| 2026-04-23 | **계절별 0-fill 정책 확정** (발전량 실증 기반): (a) 7시 1,2,3,10,11,12월 0-fill (피크 대비 <1%). (b) 18시 11,12월 0-fill. (c) 19시 1-4,9-12월 0-fill (여름 5-8월만 수집). 예상 쿼터 절약 ~8GB. source 라벨 `zero_seasonal`. |
+| 2026-04-23 | **KST_HOURS 07~18 → 07~19로 확장**: 19시 여름철(5~8월) 발전량이 피크 대비 9~12%로 유의미 (이전 "19시는 KMA가 NaN만 준다" 관찰은 원본 strict DQF 조건에 국한). 여름 이외는 0-fill. |
+| 2026-04-23 | **Phase 3 v2 수집기 재설계** (`src/crawl/gk2a_v2/collect.py`): (a) 단일 파일, 구 3개(crawl_gk2a/crawl_gk2a_retry/retry_fail) 대체. (b) **키별 전용 워커 + 공유 큐** — 랜덤 키 배분(구버전) 대신 각 워커가 한 키만 사용 → IP 쓰로틀 회피. NUM_WORKERS=6. (c) **status-code 기반 FAIL/NaN 구분** — 404, timeout, 5xx, connection_error 개별 추적. (d) **정각→±10→±20 fallback + 시간 가중 선형 보간** — 양쪽 있으면 내삽, 한쪽만이면 외삽 거부(`unrec_*`). (e) `_quota_state.json` 공유 (바이트+호출수+KST 00:00 리셋 자동). (f) **retry attempt 마다 request count 반영** — 5회 재시도가 KMA 서버 측 카운트와 일치. (g) resume 로직: site completeness + source 기반 retryable 판정. (h) 블랙리스트 로직 제거(과잉설계 확정). |
+| 2026-04-23 | **Phase 1 Merge 파이프라인** (`src/crawl/gk2a_v2/merge_existing.py`): 원본 wide(blank 39,631) + retry long(valid 3,845) → merged wide(blank 35,786). 원본 값 있으면 절대 덮지 않음(743건 보호). 19시 append 0건(retry 19시 전부 null). Merge 결과는 `data/gk2a_merged/`. |
+| 2026-04-23 | **state_file 도입**: `data/gk2a_ghi/_quota_state.json` — 키별 누적 바이트+호출수+리셋 윈도우. 여러 스크립트(수집기, retry, 진단)가 같은 파일 공유로 쿼터 일관성. Windows 파일 lock 대응 재시도 로직 포함. |
+| 2026-04-24 | **수집 방식 v3 전환**: NCDC 국가기후데이터센터 SFTP 직접 제공 (`sftp://203.247.94.245:40021`, 손시현 선생님 응대, 데드라인 2026-05-21). KMA API허브 기반 v1/v2 폐기. 변경점: (a) 시간당 1장 → **10분당 1장 (6배 해상도)**. (b) 키 쿼터/호출 제한 없음. (c) 변수: DSR + DSR_DQF1 → **DSR + ASR + RSR + 각 DQF + SW_DQF (7변수)**. (d) 파일명 시간 = UTC 기준 확정 (file_creation_time `Z` 접미사 + 9개 시각 물리 검증). (e) DQF 플래그 의미 = `0=Bad, 1=Good` (이전 추측과 반대). |
+| 2026-04-24 | **v3 스크립트 작성** (`src/crawl/gk2a_v3/`): (a) `download_nc.py` — paramiko SFTP 병렬 다운로드, parallel=6~8, resume(size 비교), 자동 추출 trigger. (b) `extract_nc.py` — netCDF4 직접 슬라이스 (xarray 대비 10배 빠름, 50~70ms/파일), 순차 처리(Windows HDF5 스레드 안전성/multiprocessing DLL 차단 회피). (c) `run_download.ps1` — 월 단위 배치. |
+| 2026-04-24 | **수집 트러블** (1): WinSCP 동시 전송 2 → 9로 변경 (15분/월 속도). 절전 모드로 다운로드 중단 발생 → `powercfg /change standby-timeout-ac 0` 적용. IP 일시 블록 두 차례 발생 (절전+동시 6 세션 비정상 종료) → 재부팅 후 복구. SFTP 인증 시 Caps Lock으로 `D` 입력 → 비번 첫글자 진단 추가. |
+| 2026-04-24 | **수집 트러블** (2): xarray.open_dataset 600~800ms/파일 → ProcessPool 시도 시 Windows multiprocessing DLL 차단 → ThreadPool 시도 시 HDF5 segfault → **순차 처리 + netCDF4 직접 슬라이스로 50~70ms 달성**. download_nc.py가 부분 다운된 월에 자동 추출 trigger한 partial CSV 생성 사례 (202210) → 다운 완료 후 수동 재추출로 덮어쓰기. |
+| 2026-04-24 ~ 25 | **v3 수집 완료**: 48개월 NC 207,958개 (331GB) 다운, 추출 CSV 48개 (총 166MB). 데이터 검증 완료. 시간 무결성·DSR 값 범위·일자별 커버리지 모두 정상. |
+| 2026-04-25 | **레거시 정리**: 구 v1/v2 산출물 및 코드 전부 삭제. (a) 데이터: `data/gk2a_ghi/`, `data/gk2a_ghi_retry/`, `data/gk2a_merged/`, `data/gk2a_v2/`. (b) 스크립트: `src/crawl/gk2a/`, `src/crawl/gk2a_v2/`. (c) 디버그 파일: `_test_auth.py`, `_paramiko_debug.log`. 현재 GK-2A 관련 자산은 `data/gk2a_raw/` + `data/gk2a_v3/` + `src/crawl/gk2a_v3/` 세 곳뿐. |
