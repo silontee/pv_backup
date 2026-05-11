@@ -20,7 +20,9 @@
       "NotebookEdit",
       "Edit(**/*.ipynb)",
       "Write(**/*.ipynb)",
-      "Bash(xargs -I{} basename {}eq)"
+      "Bash(xargs -I{} basename {}eq)",
+      "Bash(python src/models/train_two_mode_pv.py)",
+      "Bash(python -u src/models/train_two_mode_pv.py)"
     ]
   }
 }

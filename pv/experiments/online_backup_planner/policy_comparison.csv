@@ -1,0 +1,7 @@
+﻿case,policy,n_steps,fuel_cost_million_krw,startup_cost_million_krw,total_cost_million_krw,n_starts,n_peaker_starts,peaker_hours,peaker_pct_of_steps,under_backup_count,under_backup_freq_pct,under_backup_total_mwh
+realized,cost_optimal,4090,127766.9,0.0,127766.9,0,0,0,0.0,0,0.0,0.0
+realized,risk_aware,4090,130890.4,0.0,130890.4,0,0,0,0.0,0,0.0,0.0
+stress_q05,cost_optimal,4090,102227.1,0.0,102227.1,0,0,0,0.0,0,0.0,0.0
+stress_q05,risk_aware,4090,124554.1,50.0,124604.1,1,1,2533,61.9,0,0.0,0.0
+severe,cost_optimal,4090,113584.5,100.0,113684.5,2,2,6322,154.6,12,0.29,35.3
+severe,risk_aware,4090,126730.7,100.0,126830.7,2,2,7380,180.4,93,2.27,467.3

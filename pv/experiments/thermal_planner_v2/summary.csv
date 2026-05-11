@@ -1,0 +1,3 @@
+label,n_hours,shortfall_MWh,over_commit_MWh,shortage_hours,over_commit_hours,peaker_starts,peaker_hours,state_changes,correction_sign_flips,correction_volatility_MW,mean_correction_abs
+Phase 1 only (reactive),3280,5232.540822897588,6150.381422910144,1442,1412,0,0,734,19,3.6748019294142558,1.9273420238711152
+Phase 1+2 (predictive),3280,4365.818630947391,6214.420955407762,1460,1380,0,0,868,60,3.8010937115797976,3.05649406721843

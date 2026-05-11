@@ -4,9 +4,37 @@ __pycache__/
 *.pyc
 *.nc
 
-# GK-2A 중간 산출물 (raw NC에서 재생성 가능, 166MB)
+# GK-2A 중간 산출물 (raw NC에서 재생성 가능)
+# data/gk2a_v1/ — 구버전, v3 로 대체 (166 MB)
+# data/gk2a_raw/ — NC 원본 (338 GB, git 불가) — 외장 백업
 data/gk2a_v1/
 data/gk2a_raw/
 
 # 테스트/실험 NC
 data/test_*.nc
+
+# 가공 데이터 — parquet 보존, csv 는 재생성 가능
+data/processed/training_set.csv
+data/processed/solar_hourly_long.csv
+
+# 시나리오 산출물 — 현재 v4 planner 미사용 (재생성 가능)
+data/processed/scenarios_*.parquet
+data/processed/portfolio_predictions*_backup.parquet
+
+# 학습 중간 산출물
+lightning_logs/
+checkpoints/
+
+# logs
+logs/
+*.log
+
+# Streamlit 캐시
+.streamlit/cache/
+
+# AgentBridge 데몬
+.agentbridge/
+
+# 백업/임시
+*_backup.py
+src/dashboard/_app_old_backup.py

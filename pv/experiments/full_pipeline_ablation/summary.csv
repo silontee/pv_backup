@@ -1,0 +1,4 @@
+config,nmae_mean,nmae_std,pnmae_mean,pnmae_std,cov80_mean,cov80_std,score
+A_baseline,3.861,0.033,3.283,0.04,79.054,2.469,3.927
+C_light_reg,3.942,0.069,3.356,0.055,82.515,1.24,4.08
+B_capacity_down,3.997,0.055,3.397,0.041,79.7,1.691,4.107
