@@ -1,125 +1,187 @@
-# 태양광 변동성 대비 화력 백업 최적화 PoC
+# 태양광 변동성 대비 LNG 백업 최적화 PoC
 
-> 한국남동발전(KOEN) 자체설비 태양광 12 호기를 대상으로, 발전량 예측 불확실성을 정량화하고 LNG(분당) 백업 의사결정을 지원하는 PoC. AI·공공데이터 활용 경진대회 산출물.
+> 한국남동발전(KOEN) 태양광 자체설비를 대상으로 발전량 예측 불확실성을 정량화하고, 분당 LNG 호기의 시간별 재배분을 추천하는 운영 지원 PoC. AI·공공데이터 활용 경진대회 산출물 **A260021**.
+
+발표자료: [`A260021발표자료.pdf`](A260021발표자료.pdf)
+
+---
 
 ## 1. 문제 정의
 
-- **태양광은 변동비 0원 → 무조건 최대 발전, 전량 입찰 원칙**.
-- 핵심 문제는 "내일 얼마나 나올지 모른다" — 예측 오차 10~30%, 급변 시 50%+.
-- 화력은 이미 최소출력(~6,400MW)으로 24시간 가동 → 정확하지만 느림.
-- LNG(분당 920MW)만 빠른 출력 조절 가능 → **태양광 변동성을 LNG로 흡수**.
-- 따라서 핵심은 **태양광 예측 정확도 + 불확실성 정량화**, 그 결과로 LNG 기동/대기 추천 + KPX 가용용량 신고 최적화.
+- 태양광은 변동비 0원 → 무조건 최대 발전, 전량 입찰. 따라서 진짜 문제는 **"내일·다음 1시간에 얼마나 나올지 모른다"**.
+- 화력은 최소출력으로 24시간 가동 중 → 정확하지만 느림. 분당 LNG(10 호기, ~920MW) 만 PV 변동에 빠르게 대응 가능.
+- 본 PoC의 책임 범위:
+  1. **D-1 17:00** day-ahead baseline forecast (KPX 가용용량 신고 근거)
+  2. **D-day 매 시각** intraday reforecast (다음 1~3h + 일몰까지)
+  3. **호기별 LNG 재배분 추천** — 어느 호기를 얼만큼 ramp / warm-up 시킬지
 
-자세한 정의: [`plan/current/problem.md`](plan/current/problem.md)
+자세한 정의: [`plan/active/main/problem.md`](plan/active/main/problem.md), [`plan/active/main/framing.md`](plan/active/main/framing.md)
 
-## 2. 접근 — 2-Stage (MOS + PV)
+---
 
-학습 데이터(GK-2A 위성 실측)와 추론 데이터(Open-Meteo 예보)의 distribution shift를 명시적으로 다루기 위해 2-Stage 구조 채택.
+## 2. 시스템 구조
 
 ```
-Stage 0 (MOS):  Open-Meteo 예보 → bias-corrected GHI
-                ↑ 학습: historical-forecast vs GK-2A 실측
-
-Stage 1 (PV):   bias-corrected GHI + 기상 → PV 발전량 + 불확실성
-                ↑ Hybrid 2-Track:
-                  Track A — LightGBM (기준선)
-                  Track B — Bayesian Hierarchical + FiLM-GRU (메인)
+[D-1 17:00]   Phase 1   : ResMLP + AdaLN ensemble (5-seed, frozen)
+                          → day-ahead baseline μ_p1, σ_p1
+                            (24h × 8 site, KPX 신고 근거)
+                  ↓
+[D-day t∈07~18] Phase 2 : 2-branch TCN, EOD truncation L=12
+                          → t+1 ~ 일몰까지 reforecast μ_phase2
+                          (Phase 1 frozen 위 residual + soft gate)
+                  ↓
+[D-day t]    Outage      : rule-based override (cf<0.03 + z<-3 + neighbor)
+              Override     → mu_phase2 = 0 on blackout
+                  ↓
+[D-day t]    LNG Planner : Fleet allocator (10 LNG units)
+              v4           - Layer A: instant_gap → online ramp (w ∝ Headroom × Ramp × Priority)
+                           - Layer B: forward_gap → GT warm-up only (no output)
+                           - DEADBAND=4MW (계통 1·2차 예비력 cushion)
 ```
 
-- 결정 근거: [`plan/decisions/2026-04-28-pv-mos-stage.md`](plan/decisions/2026-04-28-pv-mos-stage.md)
-- PV 세부 계획: [`plan/pv/plan_v1.md`](plan/pv/plan_v1.md)
-- 상위 계획 (v8, Stage 1로 흡수 중): [`plan/current/plan.md`](plan/current/plan.md)
+핵심 산출물:
+- Phase 1 / Phase 2 ensemble parquet → 호기별 capacity factor 분포
+- Planner timeline → 호기별 dispatch 추천 + KPI (shortfall, over-commit, startup)
+- Streamlit 대시보드 4-page (운영자 시점 운영 지원 UI)
 
-## 3. 데이터 현황
+자세한 spec: [`plan/active/pv/model_final.md`](plan/active/pv/model_final.md), [`plan/active/lng/plan.md`](plan/active/lng/plan.md)
 
-### 학습용 (실측, 2022-01 ~ 2025-12, 48개월)
+---
 
-| 변수 | 소스 | 해상도 | 상태 |
+## 3. 데이터
+
+### 학습용 실측 (2022-01 ~ 2025-12, 48개월 hourly)
+
+| 변수 | 소스 | 해상도 | 비고 |
 |------|------|--------|------|
-| **PV 발전량** | KOEN 홈페이지 크롤링 | 시간별, 호기별 | ✅ |
-| **GHI (위성)** | GK-2A SWRAD (DSR) | 10분 → **시간 집계 완료** | ✅ |
-| **기온/습도/풍속** | KMA ASOS 12 관측소 | 시간별 | ✅ |
-| **LNG 발전량 (분당)** | KOEN 크롤링 | 시간별, 호기별 | ✅ |
+| PV 발전량 | KOEN 홈페이지 | 시간별·사이트별 | 11 사이트 (12 호기 중 ESS 왜곡 1개 제외) |
+| LNG 발전량 | KOEN 홈페이지 | 시간별·호기별 | 분당 10 호기 (CS1~2, CG1~8) |
+| GK-2A 위성 | 기상청 NCDC | 10분 (LCC 2km) → hourly 집계 | DSR/ASR/RSR |
+| ASOS 지상기상 | KMA 11 관측소 | 시간별 | 기온/습도/풍속/강수/구름 |
 
-### 예보용 (서비스 단계 입력)
+데이터 SSOT: [`plan/active/main/data_strategy.md`](plan/active/main/data_strategy.md)
 
-| 변수 | 소스 | 비고 |
-|------|------|------|
-| GHI 예보 | Open-Meteo (ECMWF/GFS) | 무료, 좌표 기반 |
-| 기상 예보 | KMA 단기예보 API | 5km 격자 |
+### Train / Val / Test split (target 시각 기준)
 
-### 사이트 (좌표 중복 collapse 후 11개 픽셀)
+- **Train**: 2022-01 ~ 2023-12 (2년)
+- **Val**: 2024-01 ~ 2024-12 (1년)
+- **Test**: 2025-01 ~ 2025-12 (1년, out-of-sample)
 
-영흥, 삼천포, 여수, 영동, 예천, 구미, 탑선, 경상대, 고흥만수상, 광양항세방, 창원
+### Perfect-foresight 한계
 
-데이터 SSoT: [`plan/current/data_strategy.md`](plan/current/data_strategy.md)
+PV 모델 입력 weather는 *실제 D 시점 ASOS + GK-2A 관측값*. 따라서 측정 NMAE는 **PV mapping 함수의 upper-bound (모델 한계)**. 실제 D-1 17:00 NWP forecast 환경에선 NWP 오차가 추가되어 더 나쁨. 본 PoC 범위 안에서는 model 간 *상대 비교* 만 valid (framing 명시).
 
-## 4. GK-2A 데이터 처리 (확정)
+---
 
-10분 위성 데이터를 시간 단위로 집계:
+## 4. 성능 (test 2025)
 
-- **라벨 컨벤션**: hour-ending. 라벨 N = `[N-1:00, N:00)` 6 슬롯 평균. (KOEN solar_hourly와 정합)
-- **DSR 집계**: `mean of non-NaN slots`. NaN은 측정 안 됨 (야간/위성 outage).
-- **품질 플래그**: 검증 결과 `dsr_dqf == 1.0 ⇔ dsr.notna()` 100% 동치 → DQF 컬럼 제거. `sw_dqf`도 zenith로 99.98% 재현 가능 → 제거.
-- **태양 천정각**: pvlib로 시간 중심(라벨 - 30분) 기준 사이트별 계산. 사이트 lat/lon 차이로 일출/일몰 시각 자동 분리 (예: 17:30 KST 영흥 89.2° vs 고흥 88.5°).
-- **NaN 처리**: 야간/outage row는 학습 시 mask 또는 drop. weight magic number(0.5 등)는 사용 안 함 — site×time 차이는 모델(FiLM-GRU)이 자동 학습.
+### PV forecasting
 
-스크립트: [`src/preprocess/aggregate_gk2a_hourly.py`](src/preprocess/aggregate_gk2a_hourly.py)
+| 단계 | Site NMAE | Portfolio NMAE | Cov80 | Cov95 |
+|------|-----------|----------------|-------|-------|
+| Phase 1 (ResMLP+AdaLN, 5-seed ensemble) | 5.12% | 4.75% | 82.6% / 85% | 94% |
+| Phase 2 (2-branch TCN, L=12 EOD) | — | **4.43%** | — | — |
+| **Phase 2 + Outage Override** | — | **4.22%** | — | — |
 
-### v2 출력 스키마 (`data/gk2a_v2/YYYYMM.csv`)
+- Cloud-pass 03-23: 23 → **2.89%** (override 적용)
+- Cloud-pass 04-26: 13.7 → **3.81%**
+- 광양항 10/10-12 outage: 28.2 → **0.09%**
 
-```
-datetime_kst | site | dsr_mean | dsr_n_valid | n_slots | zenith_center | lat | lon
-```
+### LNG planner (daytime 09~17, 365일 portfolio)
 
-- 385,495 hourly 행 (11 사이트 × 4년)
-- 49 월별 CSV (boundary 1개 포함)
+| Variant | Shortfall (MWh) | Over-commit (MWh) | sign_flips |
+|---------|-----------------|---------------------|------------|
+| v2 baseline (CS2 single) | 4,527 | — | 58 |
+| **v4 fleet + DEADBAND=4** | **442** | **640** | **0** |
+| vs v2 | **−90.2%** | — | −100% |
+| Phase 2 marginal | −19.1% | — | — |
+
+자세한 변천 history: [`plan/active/lng/plan.md`](plan/active/lng/plan.md), [`plan/active/pv/proposal_outline.md`](plan/active/pv/proposal_outline.md)
+
+---
 
 ## 5. 디렉토리 구조
 
 ```
 pv_backup/
-├── plan/                  # 계획 문서 (versionless current + history)
-│   ├── current/           # SSoT: problem.md, plan.md, data_strategy.md
-│   ├── decisions/         # ADR (방향 전환 기록)
-│   ├── pv/                # PV 세부 계획 (plan_v1.md, eda_*.md, model_notes.md)
-│   ├── fuel/              # LNG 백업 계획
-│   ├── history/           # 과거 plan 버전
-│   ├── references/        # 참고자료
-│   └── CHANGELOG.md
-├── pv/                    # PV 예측 연구
-│   ├── notebooks/         # EDA 노트북
-│   ├── paper/             # 모델 논문 (LaTeX)
-│   ├── src/               # 모델·학습·평가 코드 (TBD)
-│   └── experiments/
+├── plan/active/                # 살아있는 계획 (versionless SSOT)
+│   ├── main/  problem · framing · data_strategy
+│   ├── pv/    model_final · dashboard_plan · proposal_outline
+│   └── lng/   plan · parameter_reverse_engineering · (xlsx)
 ├── src/
-│   ├── crawl/             # KMA, KOEN, GK-2A 크롤러
-│   ├── preprocess/        # 데이터 집계 (gk2a v1→v2 등)
-│   └── diagnose/          # 일회성 진단 스크립트
+│   ├── crawl/         GK-2A / KMA ASOS / KOEN 발전량 크롤러
+│   ├── preprocess/    training set / thermal params / lng cost / gk2a hourly / D-1 archive
+│   ├── models/
+│   │   ├── train_resmlp_adaln_v2_ensemble.py   # Phase 1
+│   │   └── train_phase2_2branch.py             # Phase 2
+│   ├── forecast/
+│   │   └── outage_override.py                  # rule-based blackout detection
+│   ├── decisions/
+│   │   ├── build_lng_baseline.py               # P_DA proxy = 2025 actual
+│   │   ├── build_lng_unit_specs.py             # 10 LNG 호기 spec
+│   │   └── thermal_planner_v4.py               # fleet allocator
+│   └── dashboard/                              # Streamlit 4-page (한글 UI)
+│       ├── app.py
+│       ├── lib/data_loader.py
+│       └── pages/  1_예측_비교  2_실시간_차이  3_호기별_백업  4_Phase2_가치
+├── pv/
+│   ├── experiments/                            # 학습/실험 산출물 (parquet, ckpt)
+│   │   ├── resmlp_adaln_v2_ensemble/           # ★ Phase 1 production
+│   │   ├── phase2_2branch_g20_L12/             # ★ Phase 2 production + override
+│   │   └── thermal_planner_v4/                 # ★ planner output (dashboard 입력)
+│   ├── eda_pv_model/                           # PV 모델 측 EDA + 의사결정 정리
+│   ├── eda_lng_planner/                        # LNG planner 측 EDA + design 근거
+│   └── notebooks/                              # EDA Jupyter
 ├── data/
-│   ├── gk2a_raw/          # GK-2A NC 원본 (~47GB)
-│   ├── gk2a_v1/           # 10분 사이트별 추출 CSV
-│   ├── gk2a_v2/           # 시간 집계 + zenith CSV (★ 학습 입력)
-│   ├── asos_hourly/       # 기상 관측
-│   ├── solar_hourly/      # KOEN PV 발전량
-│   ├── thermal_hourly/    # KOEN 화력 발전량
-│   └── fuel_*/            # 연료 소비·조달
-├── CLAUDE.md              # 프로젝트 컨텍스트 (Claude/AI 협업용)
+│   ├── gk2a_v2/        시간 집계 + zenith CSV (★ 학습 입력)
+│   ├── solar_hourly/   KOEN PV 발전량
+│   ├── thermal_hourly/ KOEN LNG 발전량
+│   ├── asos_hourly/    KMA 지상기상
+│   └── processed/      training_set / lng_baseline / thermal_unit_profile
+├── A260021발표자료.pdf  # 경진대회 발표자료
+├── CLAUDE.md           # 프로젝트 컨텍스트 (AI 협업용)
 └── README.md
 ```
 
-## 6. 진행 상태 (2026-04-29)
+---
 
-- ✅ KOEN 회신 수신, PoC 범위·산출물 확정 (12 호기, 대시보드 포함)
-- ✅ 데이터 수집 완료 (PV/LNG 발전량, GK-2A 4년, ASOS)
-- ✅ GK-2A v2 시간 집계 완료 (zenith 포함)
-- 🔄 **EDA 진행 중** (현재 단계)
-- ⏳ MOS 검증 (`plan/pv/plan_v1.md` Gate 1~3)
-- ⏳ Track A/B 학습 → 비교
-- ⏳ 대시보드 + 시나리오 데모
+## 6. 실행
+
+### 환경 (uv)
+
+```bash
+uv sync
+```
+
+### 대시보드 (현재 production)
+
+```bash
+streamlit run src/dashboard/app.py
+```
+
+### Phase 1 / Phase 2 재학습
+
+```bash
+python src/models/train_resmlp_adaln_v2_ensemble.py   # 5-seed Phase 1
+python src/models/train_phase2_2branch.py             # 2-branch TCN Phase 2
+python src/forecast/outage_override.py                # blackout override 적용
+```
+
+### LNG planner
+
+```bash
+python src/decisions/build_lng_baseline.py            # P_DA + Avail proxy
+python src/decisions/build_lng_unit_specs.py          # 10 LNG 호기 spec
+python src/decisions/thermal_planner_v4.py            # fleet allocator
+```
+
+---
 
 ## 7. 참고
 
-- 모델 논문: [`pv/paper/pv_predict.tex`](pv/paper/pv_predict.tex) (Bayesian + FiLM-GRU)
-- 변경 로그: [`plan/CHANGELOG.md`](plan/CHANGELOG.md)
-- 외부 참고자료: [`plan/references/`](plan/references/), [`references.md`](references.md)
+- 발표자료: [`A260021발표자료.pdf`](A260021발표자료.pdf)
+- 모델 spec: [`plan/active/pv/model_final.md`](plan/active/pv/model_final.md)
+- LNG planner spec: [`plan/active/lng/plan.md`](plan/active/lng/plan.md)
+- 대시보드 spec: [`plan/active/pv/dashboard_plan.md`](plan/active/pv/dashboard_plan.md)
+- 공모전 outline: [`plan/active/pv/proposal_outline.md`](plan/active/pv/proposal_outline.md)
+- 외부 참고자료: [`references.md`](references.md)

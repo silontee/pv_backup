@@ -45,7 +45,7 @@ log = load_planner('phase1plus2')
 st.sidebar.header("📊 보기 모드")
 view_mode = st.sidebar.radio(
     "모드 선택",
-    options=["📅 일별 (시간별 timeline)", "📈 전체 (1년 누적)"],
+    options=["📅 일별 (선택한 날짜의 09~17시 흐름)", "📈 전체 (1년 누적)"],
     index=0,
 )
 
@@ -189,9 +189,9 @@ if view_mode.startswith("📅"):
     fig.update_yaxes(title_text="모드", row=3, col=1, showticklabels=False)
     fig.update_yaxes(title_text="이벤트", row=4, col=1, showticklabels=False, range=[0, 4])
     fig.update_xaxes(title_text="시간 (KST)", row=4, col=1)
-    fig.update_layout(template='plotly_white', height=900, hovermode='x unified',
-                       legend=dict(orientation='h', y=-0.05),
-                       margin=dict(t=70, b=20),
+    fig.update_layout(template='plotly_white', height=940, hovermode='x unified',
+                       legend=dict(orientation='h', y=-0.18, yanchor='top'),
+                       margin=dict(t=70, b=110),
                        plot_bgcolor='white', paper_bgcolor='white')
     st.plotly_chart(fig, use_container_width=True)
 
