@@ -2,7 +2,19 @@
 
 > 한국남동발전(KOEN) 태양광 자체설비를 대상으로 발전량 예측 불확실성을 정량화하고, 분당 LNG 호기의 시간별 재배분을 추천하는 운영 지원 PoC. AI·공공데이터 활용 경진대회 산출물 **A260021**.
 
-발표자료: [`A260021발표자료.pdf`](A260021발표자료.pdf)
+<p align="center">
+  <a href="A260021발표자료.pdf">
+    <img src="assets/slide_01.png" width="48%" alt="발표자료 표지" />
+    <img src="assets/slide_02.png" width="48%" alt="발표자료 2p" />
+  </a>
+  <br/>
+  <a href="A260021발표자료.pdf">
+    <img src="assets/slide_03.png" width="48%" alt="발표자료 3p" />
+    <img src="assets/slide_04.png" width="48%" alt="발표자료 4p" />
+  </a>
+</p>
+
+<p align="center"><sub>전체 발표자료 (21페이지) — <a href="A260021발표자료.pdf"><b>A260021발표자료.pdf</b></a></sub></p>
 
 ---
 
